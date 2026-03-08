@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>MQTT монитор - JSON данные</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .dashboard {
+            background-color: #2d2d2d;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 800px;
+        }
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .device-info {
+            text-align: center;
+            color: #3498db;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status {
+            text-align: center;
+            padding: 10px;
+            background-color: #363636;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #ffaa00;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .card {
+            background-color: #363636;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .card-title {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .card-value {
+            color: #00ff88;
+            font-size: 36px;
+            font-weight: bold;
+        }
+        .card-unit {
+            color: #888;
+            font-size: 14px;
+            margin-left: 5px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .raw-data {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            color: #888;
+            font-size: 12px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+    </style>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>📊 MQTT монитор</h1>
+        <div class="device-info" id="device">Устройство: --</div>
+        <div class="status" id="status">🔄 Подключение...</div>
+        
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Температура</div>
+                <div>
+                    <span class="card-value" id="temp">--</span>
+                    <span class="card-unit">°C</span>
+                </div>
+                <div class="timestamp" id="temp-time"></div>
+            </div>
+            
+            <div class="card">
+                <div class="card-title">Влажность</div>
+                <div>
+                    <span class="card-value" id="hum">--</span>
+                    <span class="card-unit">%</span>
+                </div>
+                <div class="timestamp" id="hum-time"></div>
+            </div>
+        </div>
+        
+        <div class="raw-data" id="raw">
+            Ожидание данных...
+        </div>
+    </div>
+
+    <script
+>	const VPS_IP = "91.199.154.71";
+    const INF_TOPIC = "esp32/sensors";
+    const MQTT_USER = "esp32"; 
+    const MQTT_PASSWORD = "esp32password"; 
+    const brokerUrl = `ws://${VPS_IP}:9001`;
+
+    console.log('Попытка подключения к:', brokerUrl);
+
+    const client = mqtt.connect(brokerUrl, {
+        keepalive: 60,
+        clean: true,
+        reconnectPeriod: 1000,
+        connectTimeout: 30 * 1000,
+        username: MQTT_USER,
+        password: MQTT_PASSWORD
+    });
+        client.on('connect', () => {
+            console.log('MQTT подключен');
+            document.getElementById('status').innerHTML = '✅ Подключено к MQTT брокеру';
+            document.getElementById('status').style.color = '#00ff88';
+            
+            client.subscribe(INF_TOPIC, (err) => {
+                if (err) {
+                    console.error('Ошибка подписки:', err);
+                    document.getElementById('raw').innerHTML = '❌ Ошибка подписки на топик';
+                } else {
+                    console.log('Подписка на топик успешна:', INF_TOPIC);
+                }
+            });
+        });
+        
+        client.on("message", (topic, message) => {
+            const rawValue = message.toString();
+            const time = new Date().toLocaleTimeString();
+            
+            console.log('Получено сообщение:', topic, rawValue);
+            document.getElementById('raw').innerHTML = `📨 Последнее сообщение (${time}): ${rawValue}`;
+            
+            try {
+                const data = JSON.parse(rawValue);
+                
+                if (data.device) {
+                    document.getElementById('device').innerHTML = `📱 Устройство: ${data.device}`;
+                }
+                
+                if (data.temperature !== undefined) {
+                    document.getElementById('temp').textContent = data.temperature;
+                    document.getElementById('temp-time').textContent = `⏱️ ${time}`;
+                }
+                
+                if (data.humidity !== undefined) {
+                    document.getElementById('hum').textContent = data.humidity;
+                    document.getElementById('hum-time').textContent = `⏱️ ${time}`;
+                }
+                
+            } catch (e) {
+                console.error('Ошибка парсинга JSON:', e);
+                document.getElementById('raw').innerHTML += '<br>❌ Ошибка: неверный формат JSON';
+            }
+        });
+        
+        client.on('error', (err) => {
+            console.error('MQTT ошибка:', err);
+            document.getElementById('status').innerHTML = `❌ Ошибка: ${err.message}`;
+            document.getElementById('status').style.color = '#ff4444';
+        });
+        
+        client.on('offline', () => {
+            console.log('MQTT отключен');
+            document.getElementById('status').innerHTML = '📴 Отключено, переподключение...';
+            document.getElementById('status').style.color = '#ffaa00';
+        });
+
+        client.on('reconnect', () => {
+            console.log('Попытка переподключения...');
+        });
+    </script>
+</body>
+</html>
